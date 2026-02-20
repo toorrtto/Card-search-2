@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>カード検索　v2</title>
+    
+
+  </head>
+    
+  <body>
+  <!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>カード管理アプリ</title>
+<style>
+body { font-family:sans-serif; padding:20px; background:#f0f0f0; }
+input, select, button { margin:5px; padding:8px; font-size:16px; }
+input, select { width:180px; }
+button { cursor:pointer; padding:8px 12px; }
+
+#cardList { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
+
+.card {
+  width:160px;
+  height:280px;
+  border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.2);
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  cursor:pointer;
+  color:#fff;
+  user-select:none;
+}
+
+.rarity {
+  font-weight:bold;
+  font-size:14px;
+}
+
+.modal {
+  display:none;
+  position:fixed;
+  z-index:10;
+  left:0; top:0;
+  width:100%; height:100%;
+  background:rgba(0,0,0,0.6);
+  justify-content:center;
+  align-items:center;
+}
+.modal-content {
+  background:#fff;
+  padding:20px;
+  border-radius:8px;
+  max-width:400px;
+  position:relative;
+  color:#000;
+}
+.close { position:absolute; top:5px; right:10px; cursor:pointer; }
+
+/* 文明カラー */
+.fire { background:#FF6B6B; }
+.water { background:#4D96FF; }
+.nature { background:#4CAF50; }
+.dark { background:#6E44FF; }
+.light { background:#FFD93D; color:#000; }
+.multi { background:#FF6BD6; }
+.zero { background:#9E9E9E; }
+
+#adminStatus { font-weight:bold; color:#d32f2f; }
+#loading { display:none; margin-top:10px; }
+</style>
+</head>
+<body>
+
+<h1>カード管理アプリ</h1>
+
+<button onclick="enterAdminMode()">管理者ログイン</button>
+<button onclick="exitAdminMode()">管理者ログアウト</button>
+<span id="adminStatus"></span>
+
+<!-- 管理者専用 -->
+<div id="adminOnlyArea" style="display:none;">
+<h2>カード追加</h2>
+<input id="cardName" placeholder="カード名">
+<input id="cardTribe" placeholder="種族">
+<select id="cardRarity">
+<option value="">--レア度--</option>
+<option value="LGR">LGR</option>
+<option value="SR">SR</option>
+<option value="R">R</option>
+<option value="U">U</option>
+<option value="C">C</option>
+</select>
+
+<select id="cardType">
+<option value="">--種類--</option>
+<option value="モンスター">モンスター</option>
+<option value="進化モンスター">進化モンスター</option>
+<option value="REVOモンスター">REVOモンスター</option>
+<option value="スペル">スペル</option>
+<option value="マテリアアル">マテリアアル</option>
+<option value="マテリアルギア">マテリアルギア</option>
+</select>
+
+<select id="cardCivilization">
+<option value="">--文明--</option>
+<option value="火">火</option>
+<option value="水">水</option>
+<option value="自然">自然</option>
+<option value="闇">闇</option>
+<option value="光">光</option>
+<option value="多色">多色</option>
+<option value="ゼロ">ゼロ</option>
+</select>
+
+<input id="cardCost" type="number" placeholder="コスト">
+<input id="cardEffect" placeholder="効果">
+<button onclick="addCard()">追加</button>
+</div>
+
+<h2>カード検索</h2>
+<input id="searchName" placeholder="名前">
+<input id="searchTribe" placeholder="種族">
+<select id="searchRarity">
+<option value="">--レア度--</option>
+<option value="LGR">LGR</option>
+<option value="SR">SR</option>
+<option value="R">R</option>
+<option value="U">U</option>
+<option value="C">C</option>
+</select>
+
+<input id="searchCost" type="number" placeholder="コスト">
+<input id="searchEffect" placeholder="効果">
+
+<button onclick="searchCard()">検索</button>
+<button onclick="resetSearch()">リセット</button>
+
+<div id="loading">読み込み中...</div>
+<div id="cardList"></div>
+
+<div id="modal" class="modal">
+<div class="modal-content">
+<span class="close" onclick="closeModal()">&times;</span>
+<h3 id="modalName"></h3>
+<div id="modalRarity"></div>
+<div id="modalTribe"></div>
+<div id="modalType"></div>
+<div id="modalCivilization"></div>
+<div id="modalCost"></div>
+<p id="modalEffect"></p>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+const firebaseConfig={
+  apiKey:"YOUR_API_KEY",
+  authDomain:"card-search-7c28e.firebaseapp.com",
+  projectId:"card-search-7c28e"
+};
+firebase.initializeApp(firebaseConfig);
+const db=firebase.firestore();
+
+const ADMIN_PASSWORD="114514810";
+let isAdminMode=false;
+
+function enterAdminMode(){
+  const pass=prompt("管理者パスワードを入力");
+  if(pass===ADMIN_PASSWORD){
+    isAdminMode=true;
+    adminStatus.innerText="🛡 管理者モード中";
+    adminOnlyArea.style.display="block";
+  }else alert("パスワードが違います");
+}
+function exitAdminMode(){
+  isAdminMode=false;
+  adminStatus.innerText="";
+  adminOnlyArea.style.display="none";
+}
+
+async function addCard(){
+  const name=cardName.value.trim();
+  if(!name) return;
+
+  await db.collection("cards").add({
+    name,
+    tribe:cardTribe.value,
+    rarity:cardRarity.value,
+    type:cardType.value,
+    civilization:cardCivilization.value,
+    cost:Number(cardCost.value),
+    effect:cardEffect.value,
+    created_at:firebase.firestore.FieldValue.serverTimestamp()
+  });
+
+  document.querySelectorAll("#adminOnlyArea input, #adminOnlyArea select")
+    .forEach(e=>e.value="");
+
+  resetScroll();
+}
+
+let lastVisible=null;
+let isFetching=false;
+const pageSize=30;
+
+async function fetchCards(){
+  if(isFetching) return;
+  isFetching=true;
+  loading.style.display="block";
+
+  let query=db.collection("cards")
+    .orderBy("created_at","desc")
+    .limit(pageSize);
+
+  if(lastVisible) query=query.startAfter(lastVisible);
+
+  const snapshot=await query.get();
+  if(snapshot.empty){ isFetching=false; loading.style.display="none"; return; }
+
+  lastVisible=snapshot.docs[snapshot.docs.length-1];
+  display(snapshot.docs);
+
+  isFetching=false;
+  loading.style.display="none";
+}
+
+function resetScroll(){
+  lastVisible=null;
+  cardList.innerHTML="";
+  fetchCards();
+}
+
+function display(docs){
+  docs.forEach(doc=>{
+    const d=doc.data();
+    const div=document.createElement("div");
+    div.className="card";
+    div.innerHTML=`
+      <div class="rarity">${d.rarity||""}</div>
+      <strong>${d.name}</strong>
+      <div>${d.tribe||"-"}</div>
+      <div>コスト:${d.cost||"-"}</div>
+    `;
+
+    let timer;
+    div.addEventListener("touchstart",()=>{
+      timer=setTimeout(()=>{
+        if(isAdminMode && confirm("削除しますか？")){
+          db.collection("cards").doc(doc.id).delete().then(resetScroll);
+        }
+      },800);
+    });
+    div.addEventListener("touchend",()=>clearTimeout(timer));
+    div.addEventListener("click",()=>openModal(d));
+    cardList.appendChild(div);
+  });
+}
+
+async function searchCard(){
+  const snapshot=await db.collection("cards").get();
+  const filtered=snapshot.docs.filter(doc=>{
+    const d=doc.data();
+    return (!searchName.value||d.name.includes(searchName.value))
+      && (!searchTribe.value||d.tribe.includes(searchTribe.value))
+      && (!searchRarity.value||d.rarity===searchRarity.value)
+      && (!searchEffect.value||d.effect.includes(searchEffect.value))
+      && (!searchCost.value||d.cost==searchCost.value);
+  });
+  cardList.innerHTML="";
+  display(filtered);
+}
+
+function resetSearch(){
+  document.querySelectorAll("#searchName,#searchTribe,#searchRarity,#searchCost,#searchEffect")
+    .forEach(e=>e.value="");
+  resetScroll();
+}
+
+function openModal(d){
+  modalName.innerText=d.name;
+  modalRarity.innerText="レア度: "+(d.rarity||"-");
+  modalTribe.innerText="種族: "+(d.tribe||"-");
+  modalType.innerText="タイプ: "+(d.type||"-");
+  modalCivilization.innerText="文明: "+(d.civilization||"-");
+  modalCost.innerText="コスト: "+(d.cost||"-");
+  modalEffect.innerText=d.effect||"";
+  modal.style.display="flex";
+}
+function closeModal(){ modal.style.display="none"; }
+
+window.addEventListener("scroll",()=>{
+  if(window.innerHeight+window.scrollY>=document.body.offsetHeight-50){
+    fetchCards();
+  }
+});
+
+fetchCards();
+</script>
+</body>
+</html>
+    
+  </body>
+  
+</html>
